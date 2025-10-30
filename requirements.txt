@@ -5,4 +5,5 @@ matplotlib==3.8.2
 seaborn==0.13.1
 networkx==3.2.1
 numpy==1.26.3
+statsmodels==0.14.1
 
