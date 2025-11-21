@@ -266,7 +266,8 @@ menu = st.sidebar.radio(
         "4. Climate Correlation",
         "5. Composite Map",
         "6. Potential energy network",
-        "7. Conclusion"
+        "7. Treemap & Sunburst",
+        "8. Conclusion"
     ]
 )
 
@@ -276,6 +277,74 @@ st.sidebar.markdown("""
 
 **Data Source:** NASA POWER API (2015-2024)
 """)
+
+def create_treemap_data(monthly_df):
+    """Create hierarchical data for treemap"""
+    provinces_summary = monthly_df.groupby('Province').agg({
+        'GHI_kWh_m2_day': 'mean',
+        'GHI_Annual_kWh_m2_year': 'mean'
+    }).reset_index()
+    
+    # Create parent-child structure: Vietnam -> Province -> Values
+    treemap_data = []
+    treemap_data.append({
+        'id': 'Vietnam',
+        'parent': '',
+        'value': provinces_summary['GHI_Annual_kWh_m2_year'].sum(),
+        'label': 'Vietnam'
+    })
+    
+    for _, row in provinces_summary.iterrows():
+        treemap_data.append({
+            'id': row['Province'],
+            'parent': 'Vietnam',
+            'value': row['GHI_Annual_kWh_m2_year'],
+            'label': f"{row['Province']}<br>{row['GHI_kWh_m2_day']:.2f} kWh/m²/day"
+        })
+    
+    return pd.DataFrame(treemap_data)
+
+def create_sunburst_data(monthly_df):
+    """Create hierarchical data for sunburst"""
+    # Group by Year -> Province
+    sunburst_data = []
+    
+    # Add root
+    sunburst_data.append({
+        'id': 'Vietnam',
+        'parent': '',
+        'value': monthly_df['GHI_Annual_kWh_m2_year'].sum(),
+        'label': 'Vietnam'
+    })
+    
+    # Add years
+    years = sorted(monthly_df['Year'].unique())
+    for year in years:
+        year_data = monthly_df[monthly_df['Year'] == year]
+        sunburst_data.append({
+            'id': str(year),
+            'parent': 'Vietnam',
+            'value': year_data['GHI_Annual_kWh_m2_year'].sum(),
+            'label': str(year)
+        })
+    
+    # Add provinces under each year
+    for year in years:
+        year_data = monthly_df[monthly_df['Year'] == year]
+        provinces_data = year_data.groupby('Province').agg({
+            'GHI_Annual_kWh_m2_year': 'mean',
+            'GHI_kWh_m2_day': 'mean'
+        }).reset_index()
+        
+        for _, row in provinces_data.iterrows():
+            sunburst_data.append({
+                'id': f"{year}_{row['Province']}",
+                'parent': str(year),
+                'value': row['GHI_Annual_kWh_m2_year'],
+                'label': f"{row['Province']}<br>{row['GHI_kWh_m2_day']:.2f}"
+            })
+    
+    return pd.DataFrame(sunburst_data)
 
 if menu == "Home":
     st.title("SOLAR ENERGY")
@@ -372,27 +441,88 @@ elif menu == "1. Radiation Distribution":
         "GHI_Annual_kWh_m2_year": "Annual Total Energy (kWh/m²/year)"
     })
     
-    fig = px.histogram(
-        df_hist,
-        x="Average Radiation (kWh/m²/day)",
-        color="Province",
-        nbins=25,
-        hover_data=["Year"],
-        title="Distribution of Average Solar Radiation Among Vietnamese Provinces (2015–2024)",
-        color_discrete_sequence=px.colors.qualitative.Set3
+    chart_type = st.radio(
+        "Select chart type:",
+        ["Histogram", "Boxplot", "Violin Plot"],
+        horizontal=True
     )
     
-    fig.update_layout(
-        xaxis_title="Average Solar Radiation Level (kWh/m²/day)",
-        yaxis_title="Number of Months in Period 2015-2024",
-        legend_title_text="Province",
-        template="plotly_white",
-        title_x=0.5,
-        height=600,
-        font=dict(size=13)
-    )
+    if chart_type == "Histogram":
+        fig = px.histogram(
+            df_hist,
+            x="Average Radiation (kWh/m²/day)",
+            color="Province",
+            nbins=25,
+            hover_data=["Year"],
+            title="Distribution of Average Solar Radiation Among Vietnamese Provinces (2015–2024)",
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        
+        fig.update_layout(
+            xaxis_title="Average Solar Radiation Level (kWh/m²/day)",
+            yaxis_title="Number of Months in Period 2015-2024",
+            legend_title_text="Province",
+            template="plotly_white",
+            title_x=0.5,
+            height=600,
+            font=dict(size=13)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     
-    st.plotly_chart(fig, use_container_width=True)
+    elif chart_type == "Boxplot":
+        fig = px.box(
+            df_hist,
+            x="Province",
+            y="Average Radiation (kWh/m²/day)",
+            color="Province",
+            title="Boxplot of Solar Radiation Distribution by Province (2015–2024)",
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        
+        fig.update_layout(
+            xaxis_title="Province",
+            yaxis_title="Average Radiation (kWh/m²/day)",
+            legend_title_text="Province",
+            template="plotly_white",
+            title_x=0.5,
+            height=600,
+            font=dict(size=13),
+            xaxis_tickangle=-45
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    elif chart_type == "Violin Plot":
+        fig = go.Figure()
+        
+        provinces = sorted(df_hist['Province'].unique())
+        colors = px.colors.qualitative.Set3
+        
+        for i, province in enumerate(provinces):
+            province_data = df_hist[df_hist['Province'] == province]['Average Radiation (kWh/m²/day)']
+            fig.add_trace(go.Violin(
+                y=province_data,
+                name=province,
+                box_visible=True,
+                meanline_visible=True,
+                fillcolor=colors[i % len(colors)],
+                line_color='black',
+                opacity=0.7
+            ))
+        
+        fig.update_layout(
+            title="Violin Plot of Solar Radiation Distribution by Province (2015–2024)",
+            yaxis_title="Average Radiation (kWh/m²/day)",
+            xaxis_title="Province",
+            template="plotly_white",
+            title_x=0.5,
+            height=600,
+            font=dict(size=13),
+            showlegend=True
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
 
 elif menu == "2. Time Trends":
     st.title("SOLAR RADIATION TRENDS OVER TIME")
@@ -412,28 +542,59 @@ elif menu == "2. Time Trends":
     else:
         df_filtered = df_annual
     
-    fig = px.line(
-        df_filtered,
-        x="Year",
-        y="GHI_kWh_m2_day",
-        color="Province",
-        markers=True,
-        hover_data={"Year": True, "GHI_kWh_m2_day": ':.2f', "Province": True},
-        title="☀️ Average Solar Radiation (GHI) Trend Over Time 2015–2024",
+    chart_type = st.radio(
+        "Select chart type:",
+        ["Line Chart", "Area Chart"],
+        horizontal=True
     )
     
-    fig.update_layout(
-        xaxis_title="Year",
-        yaxis_title="Average Radiation (kWh/m²/day)",
-        legend_title="Province",
-        template="plotly_white",
-        hovermode="x unified",
-        height=600,
-        title_x=0.5,
-        font=dict(size=13)
-    )
+    if chart_type == "Line Chart":
+        fig = px.line(
+            df_filtered,
+            x="Year",
+            y="GHI_kWh_m2_day",
+            color="Province",
+            markers=True,
+            hover_data={"Year": True, "GHI_kWh_m2_day": ':.2f', "Province": True},
+            title="☀️ Average Solar Radiation (GHI) Trend Over Time 2015–2024",
+        )
+        
+        fig.update_layout(
+            xaxis_title="Year",
+            yaxis_title="Average Radiation (kWh/m²/day)",
+            legend_title="Province",
+            template="plotly_white",
+            hovermode="x unified",
+            height=600,
+            title_x=0.5,
+            font=dict(size=13)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
     
-    st.plotly_chart(fig, use_container_width=True)
+    elif chart_type == "Area Chart":
+        fig = px.area(
+            df_filtered,
+            x="Year",
+            y="GHI_kWh_m2_day",
+            color="Province",
+            line_group="Province",
+            hover_data={"Year": True, "GHI_kWh_m2_day": ':.2f', "Province": True},
+            title="☀️ Area Chart of Solar Radiation Trend Over Time 2015–2024",
+        )
+        
+        fig.update_layout(
+            xaxis_title="Year",
+            yaxis_title="Average Radiation (kWh/m²/day)",
+            legend_title="Province",
+            template="plotly_white",
+            hovermode="x unified",
+            height=600,
+            title_x=0.5,
+            font=dict(size=13)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
 
 elif menu == "3. Geographic Location":
     st.title("RELATIONSHIP BETWEEN GEOGRAPHIC LOCATION AND SOLAR RADIATION")
@@ -719,7 +880,95 @@ elif menu == "6. Potential energy network":
     
     st.pyplot(fig)
 
-elif menu == "7. Conclusion":
+elif menu == "7. Treemap & Sunburst":
+    st.title("HIERARCHICAL VISUALIZATION - TREEMAP & SUNBURST")
+    
+    chart_type = st.radio(
+        "Select chart type:",
+        ["Treemap", "Sunburst"],
+        horizontal=True
+    )
+    
+    if chart_type == "Treemap":
+        st.subheader("Treemap: Solar Energy Potential by Province")
+        st.write("""
+        This treemap shows the relative solar energy potential of each province. 
+        The size of each rectangle represents the total annual energy (kWh/m²/year), 
+        while the color intensity shows the average daily radiation (kWh/m²/day).
+        """)
+        
+        treemap_df = create_treemap_data(monthly_df)
+        
+        fig = px.treemap(
+            treemap_df,
+            path=['parent', 'id'],
+            values='value',
+            color='value',
+            color_continuous_scale='YlOrRd',
+            hover_data=['label'],
+            title="🌳 Solar Energy Potential Treemap by Province (2015-2024)"
+        )
+        
+        fig.update_layout(
+            title_font=dict(size=18, family="Arial", color="#333"),
+            title_x=0.5,
+            height=700,
+            font=dict(size=12)
+        )
+        
+        fig.update_traces(
+            textinfo="label+value",
+            texttemplate="%{label}<br>%{value:.0f} kWh/m²/year"
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown("---")
+        st.write("""
+        **Interpretation:** Larger rectangles indicate provinces with higher total annual solar energy potential.
+        This visualization helps identify which provinces have the greatest solar power development potential.
+        """)
+    
+    elif chart_type == "Sunburst":
+        st.subheader("Sunburst: Hierarchical Solar Energy Distribution")
+        st.write("""
+        This sunburst chart shows the hierarchical structure of solar energy: 
+        **Vietnam → Year → Province**. The size of each segment represents the 
+        total annual energy potential at that level.
+        """)
+        
+        sunburst_df = create_sunburst_data(monthly_df)
+        
+        fig = px.sunburst(
+            sunburst_df,
+            path=['parent', 'id'],
+            values='value',
+            color='value',
+            color_continuous_scale='YlOrRd',
+            hover_data=['label'],
+            title="☀️ Solar Energy Distribution Sunburst: Vietnam → Year → Province (2015-2024)"
+        )
+        
+        fig.update_layout(
+            title_font=dict(size=18, family="Arial", color="#333"),
+            title_x=0.5,
+            height=700,
+            font=dict(size=11)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown("---")
+        st.write("""
+        **Interpretation:** 
+        - **Inner ring:** Vietnam (total)
+        - **Middle ring:** Years (2015-2024)
+        - **Outer ring:** Provinces within each year
+        
+        Click on any segment to zoom into that level of detail.
+        """)
+
+elif menu == "8. Conclusion":
     st.title("CONCLUSION")
     
     st.subheader("Key Findings")
